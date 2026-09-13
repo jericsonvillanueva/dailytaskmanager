@@ -1,0 +1,7 @@
+{
+  "name": "daily task manager",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "vue-vite"
+}
