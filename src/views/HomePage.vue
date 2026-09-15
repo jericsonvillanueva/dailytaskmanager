@@ -109,7 +109,7 @@ import {
   IonSelect, IonSelectOption, IonProgressBar, IonFab, IonFabButton, IonIcon 
 } from '@ionic/vue';
 import { addOutline, sparklesOutline } from 'ionicons/icons';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { ref as dbRef, onValue } from 'firebase/database';
 import { db } from '../firebase';
 import TaskForm from '../components/TaskForm.vue';
 import TaskItem from '../components/TaskItem.vue';
@@ -155,8 +155,22 @@ const filteredAndSortedTasks = computed(() => {
 });
 
 onMounted(() => {
-  onSnapshot(collection(db, 'tasks'), (querySnapshot) => {
-    tasks.value = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Task[];
+  const tasksRef = dbRef(db, 'tasks');
+  
+  onValue(tasksRef, (snapshot) => {
+    const data = snapshot.val();
+    
+    // Handle empty database case
+    if (!data) {
+      tasks.value = [];
+      return;
+    }
+    
+    // Convert Realtime Database object map into an array with IDs
+    tasks.value = Object.keys(data).map((key) => ({
+      id: key,
+      ...data[key]
+    })) as Task[];
   });
 });
 

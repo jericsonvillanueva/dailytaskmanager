@@ -1,27 +1,31 @@
-import { collection, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../firebase'; 
+import { ref, push, set, update, remove } from 'firebase/database';
+import { db } from '../firebase';
 
 export interface Task {
   id?: string;
   title: string;
-  description: string;
-  dueDate: string;
+  description?: string;
+  dueDate?: string;
   priority: 'Low' | 'Medium' | 'High';
   status: 'Pending' | 'Completed';
 }
 
-const taskCollection = collection(db, 'tasks');
-
+// CREATE: Push a new child node to the 'tasks' path
 export const addTask = async (task: Omit<Task, 'id'>) => {
-  return await addDoc(taskCollection, task);
+  const tasksRef = ref(db, 'tasks');
+  const newTaskRef = push(tasksRef);
+  await set(newTaskRef, task);
+  return newTaskRef.key;
 };
 
-export const updateTask = async (id: string, updatedData: Partial<Task>) => {
-  const taskDoc = doc(db, 'tasks', id);
-  return await updateDoc(taskDoc, updatedData);
+// UPDATE: Modify properties of a task by ID
+export const updateTask = async (id: string, updatedFields: Partial<Task>) => {
+  const taskRef = ref(db, `tasks/${id}`);
+  await update(taskRef, updatedFields);
 };
 
+// DELETE: Remove task node by ID
 export const deleteTask = async (id: string) => {
-  const taskDoc = doc(db, 'tasks', id);
-  return await deleteDoc(taskDoc);
+  const taskRef = ref(db, `tasks/${id}`);
+  await remove(taskRef);
 };
