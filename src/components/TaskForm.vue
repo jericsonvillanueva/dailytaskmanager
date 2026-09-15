@@ -1,25 +1,59 @@
 <template>
-  <form @submit.prevent="submitTask">
+  <form @submit.prevent="submitTask" class="form-container">
     <ion-list lines="none" class="modern-form">
       <ion-item class="custom-input">
-        <ion-input label="Task Title" label-placement="floating" v-model="task.title" required></ion-input>
+        <ion-input 
+          label="Task Title" 
+          label-placement="stacked" 
+          placeholder="e.g. Complete quarterly report" 
+          v-model="task.title" 
+          required 
+        ></ion-input>
       </ion-item>
+
       <ion-item class="custom-input">
-        <ion-textarea label="Description" label-placement="floating" v-model="task.description" required></ion-textarea>
+        <ion-textarea 
+          label="Description" 
+          label-placement="stacked" 
+          placeholder="Add details or notes..." 
+          v-model="task.description" 
+          :rows="3"
+        ></ion-textarea>
       </ion-item>
+
       <ion-item class="custom-input">
-        <ion-input type="date" label="Due Date" label-placement="stacked" v-model="task.dueDate" required></ion-input>
+        <ion-input 
+          type="datetime-local" 
+          label="Due Date & Time" 
+          label-placement="stacked" 
+          v-model="task.dueDate" 
+          required 
+        ></ion-input>
       </ion-item>
+
       <ion-item class="custom-input">
-        <ion-select label="Priority" label-placement="floating" v-model="task.priority" required>
+        <ion-select 
+          label="Priority" 
+          label-placement="stacked" 
+          v-model="task.priority" 
+          interface="popover"
+          required
+        >
           <ion-select-option value="Low">Low</ion-select-option>
           <ion-select-option value="Medium">Medium</ion-select-option>
           <ion-select-option value="High">High</ion-select-option>
         </ion-select>
       </ion-item>
     </ion-list>
-    <ion-button expand="block" type="submit" class="modern-button ion-margin-top" shape="round">
-      {{ props.existingTask ? 'Update Task' : 'Save Task' }}
+
+    <ion-button 
+      expand="block" 
+      type="submit" 
+      class="modern-button" 
+      shape="round" 
+      color="primary"
+    >
+      {{ props.existingTask ? 'Update Task' : 'Create Task' }}
     </ion-button>
   </form>
 </template>
@@ -28,40 +62,92 @@
 import { ref, watch } from 'vue';
 import { IonList, IonItem, IonInput, IonTextarea, IonSelect, IonSelectOption, IonButton } from '@ionic/vue';
 import { Toast } from '@capacitor/toast';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { addTask, updateTask, Task } from '../services/taskService';
 
-// NEW: Accept an existing task for editing
 const props = defineProps<{ existingTask?: Task | null }>();
 const emit = defineEmits(['task-saved']);
 
-const task = ref<Task>({
-  title: '', description: '', dueDate: '', priority: 'Medium', status: 'Pending'
+const defaultTaskState = (): Task => ({
+  title: '', 
+  description: '', 
+  dueDate: '', 
+  priority: 'Medium', 
+  status: 'Pending'
 });
 
-// NEW: If existing data is passed in, fill the form
+const task = ref<Task>(defaultTaskState());
+
+// Reset or populate fields when existingTask prop updates
 watch(() => props.existingTask, (newVal) => {
-  if (newVal) task.value = { ...newVal };
+  if (newVal) {
+    task.value = { ...newVal };
+  } else {
+    task.value = defaultTaskState();
+  }
 }, { immediate: true });
 
 const submitTask = async () => {
   try {
     if (props.existingTask && props.existingTask.id) {
-      // Update existing task
       await updateTask(props.existingTask.id, task.value);
     } else {
-      // Add new task
       const { id, ...newTask } = task.value; 
       await addTask(newTask as Omit<Task, 'id'>);
     }
 
-    await Toast.show({ text: props.existingTask ? 'Task Updated!' : 'Task Saved!', position: 'bottom', duration: 'short' });
-    
-    // Reset form if it's a new task
+    // --- LOCAL NOTIFICATIONS LOGIC ---
+    if (task.value.dueDate) {
+      try {
+        const permStatus = await LocalNotifications.requestPermissions();
+        
+        if (permStatus.display === 'granted') {
+          const deadline = new Date(task.value.dueDate);
+          const oneHourBefore = new Date(deadline.getTime() - 60 * 60 * 1000);
+          const notificationsToSchedule = [];
+
+          // 1. Approaching Notification (1 hour before deadline)
+          if (oneHourBefore.getTime() > Date.now()) {
+            notificationsToSchedule.push({
+              title: 'Task Approaching! ⏳',
+              body: `"${task.value.title}" is due in 1 hour.`,
+              id: Math.floor(Math.random() * 100000),
+              schedule: { at: oneHourBefore }
+            });
+          }
+
+          // 2. Deadline Reached Notification
+          if (deadline.getTime() > Date.now()) {
+            notificationsToSchedule.push({
+              title: 'Deadline Reached! 🚨',
+              body: `"${task.value.title}" is due right now!`,
+              id: Math.floor(Math.random() * 100000),
+              schedule: { at: deadline }
+            });
+          }
+
+          if (notificationsToSchedule.length > 0) {
+            await LocalNotifications.schedule({ notifications: notificationsToSchedule });
+          }
+        }
+      } catch (notifError) {
+        console.warn("Notification scheduling skipped (web mode or missing plugin):", notifError);
+      }
+    }
+    // ---------------------------------
+
+    try {
+      await Toast.show({ text: props.existingTask ? 'Task Updated!' : 'Task Saved!', position: 'bottom', duration: 'short' });
+    } catch {
+      // Fallback if Toast plugin is not available on web platform
+    }
+
     if (!props.existingTask) {
-      task.value = { title: '', description: '', dueDate: '', priority: 'Medium', status: 'Pending' };
+      task.value = defaultTaskState();
     }
     
-    emit('task-saved'); // Tell the parent modal to close
+    // Notify HomePage to close modal and handle layout updates
+    emit('task-saved');
   } catch (error) {
     console.error("Error saving task: ", error);
   }
@@ -69,20 +155,44 @@ const submitTask = async () => {
 </script>
 
 <style scoped>
+.form-container {
+  padding-top: 8px;
+}
+
 .modern-form {
   background: transparent;
+  padding: 0;
 }
 
 .custom-input {
-  /* This adapts automatically! It creates a soft gray box in both Light and Dark mode */
-  --background: rgba(130, 130, 130, 0.1); 
-  --border-radius: 8px;
-  margin-bottom: 12px;
-  --padding-start: 12px;
+  --background: rgba(30, 41, 59, 0.6);
+  --border-radius: 12px;
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-style: solid;
+  --border-width: 1px;
+  --padding-start: 14px;
+  --padding-end: 14px;
+  --padding-top: 6px;
+  --padding-bottom: 6px;
+  margin-bottom: 14px;
+  font-size: 0.95rem;
+}
+
+.custom-input ion-input,
+.custom-input ion-textarea,
+.custom-input ion-select {
+  --color: #f8fafc;
+  --placeholder-color: #64748b;
+  --placeholder-opacity: 1;
+  font-weight: 500;
 }
 
 .modern-button {
-  margin-top: 16px;
-  --box-shadow: 0 4px 10px rgba(var(--ion-color-primary-rgb), 0.3);
+  margin-top: 24px;
+  height: 48px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  --border-radius: 14px;
+  --box-shadow: 0 8px 20px -4px rgba(99, 102, 241, 0.4);
 }
 </style>
